@@ -27,8 +27,8 @@ if __name__ == "__main__":
         if len(targets) < 2:
             return
 
-        learning_rate = 0.0004
-        steps = 30
+        learning_rate = 0.004
+        steps = 100
         retain = 100
 
         for network_name, network in networks.items():
