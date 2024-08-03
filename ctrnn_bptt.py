@@ -52,11 +52,6 @@ class Neuron:
 
         self.state_history.appendleft(self.state)
 
-    def dump(self):
-        dump_state_hist = list([*self.state_history])
-        self.state_history = deque()
-        return Neuron.sigmoid(self.state), dump_state_hist
-
 
 class CTRNN:
     def __init__(self, size: int, input_features: int, output_features: int):
@@ -127,7 +122,7 @@ class CTRNN:
 
         return self
 
-    def forward(self, inputs: List[float], step_size: float, current_time: float):
+    def forward(self, inputs: List[float], steps: int, current_time: float):
         if len(self.inf) != len(inputs):
             raise Exception(
                 "size mismatch, input neurons: %s, input data shape: %s"
@@ -150,6 +145,8 @@ class CTRNN:
                     neuron.sync(np.random.uniform(-1, 1), self.tau)
             return
 
+        step_size = (current_time - self.tau) / steps
+
         while self.tau < current_time:
             inp_ix = 0
             for ix, neuron in enumerate(self.neurons):
@@ -161,7 +158,6 @@ class CTRNN:
 
             self.tau += step_size
 
-        # (where i am, how i got here)
         return [neu.state for neu in self.ouf]
 
     def backward(self, target: List[float], learning_rate: float):
@@ -171,35 +167,61 @@ class CTRNN:
                 % (len(self.ouf), len(target))
             )
 
-        num_steps = len(self.ouf[0].state_history)
-
         loss_fn = lambda pred, targ: (pred - targ) ** 2
-        loss = [
-            loss_fn(Neuron.sigmoid(neu.state), target[i])
-            for i, neu in enumerate(self.ouf)
-        ]
+        loss = [loss_fn(neu.state, target[i]) for i, neu in enumerate(self.ouf)]
+        avg_loss = np.mean(loss)
 
+        weight_gradients = {neu: {} for neu in self.neurons}
+        for neu in self.neurons:
+            for other_neu in neu.nexto:
+                weight_gradients[neu][other_neu] = 0.0
+
+        num_steps = len(self.ouf[0].state_history)
         for t in range(num_steps):
-            for i, neu in enumerate(self.ouf):
-                output_grad = loss[i] * Neuron.dsigmoid(neu.state_history[t])
-                for other_neu in neu.nexto:
-                    other_neu_gradient = output_grad * other_neu.state_history[t]
-                    # Gradient descent
-                    neu.nexto[other_neu] -= learning_rate * other_neu_gradient
+            delta = {neu: 0.0 for neu in self.neurons}
 
-        return np.mean(loss)
+            for i, neu in enumerate(self.ouf):
+                output_grad = (
+                    2
+                    * (Neuron.sigmoid(neu.state_history[t]) - target[i])
+                    * Neuron.dsigmoid(neu.state_history[t])
+                )
+                delta[neu] = output_grad
+
+            for neu in self.neurons:
+                if delta[neu] == 0.0:
+                    continue
+
+                for other_neu, weight in neu.nexto.items():
+                    weight_grad = delta[neu] * Neuron.sigmoid(
+                        other_neu.state_history[t]
+                    )
+                    weight_gradients[neu][other_neu] += weight_grad
+                    delta[other_neu] += (
+                        delta[neu]
+                        * weight
+                        * Neuron.dsigmoid(other_neu.state_history[t])
+                    )
+
+        for neu in self.neurons:
+            for other_neu, gradient in weight_gradients[neu].items():
+                neu.nexto[other_neu] -= learning_rate * gradient
+
+        return avg_loss
 
     def step(
         self,
         inputs: List[float],
         target: List[float],
-        step_size: float,
+        steps: int,
         next_tau: float,
         learning_rate: float,
     ):
-        self.forward(inputs=inputs, step_size=step_size, current_time=next_tau)
+        self.forward(inputs=inputs, steps=steps, current_time=next_tau)
         loss = self.backward(target=target, learning_rate=learning_rate)
 
-        [neu.dump() for neu in self.neurons]
+        for neu in self.neurons:
+            while len(neu.state_history) > steps * 20:
+                neu.state_history.pop()
 
         return loss

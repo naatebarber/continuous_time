@@ -6,7 +6,7 @@ from typing import Any, Callable, Dict, TypedDict
 
 import zmq
 
-from ctrnn_hybrid_bptt_rtrl import CTRNN, Neuron
+from ctrnn_bptt import CTRNN, Neuron
 from graph_thread import GraphThread
 
 # For use with snail waitress noisy feed generator
@@ -57,22 +57,25 @@ def relative_time(start_time: float, end_time: float, current: float):
 
 
 def main():
-    tiny = CTRNN(8, 1, 1).weave()
+    # tiny = CTRNN(8, 1, 1).weave()
     small = CTRNN(12, 1, 1).weave()
-    medium = CTRNN(20, 1, 1).weave()
-    large = CTRNN(40, 1, 1).weave()
+    # medium = CTRNN(20, 1, 1).weave()
+    # large = CTRNN(40, 1, 1).weave()
+
+    # losses_tiny = deque()
+    # losses_small = deque()
+    # losses_medium = deque()
+    # losses_large = deque()
 
     window = 3600
 
     taus = deque()
     series = deque()
 
-    losses_tiny = deque()
-    losses_small = deque()
-    losses_medium = deque()
-    losses_large = deque()
+    pred_small = deque()
+    actual = deque()
 
-    gt = GraphThread([losses_tiny, losses_small, losses_medium, losses_large])
+    gt = GraphThread([actual, pred_small])
 
     gt.daemon = True
     gt.start()
@@ -86,10 +89,10 @@ def main():
         ts = event.get("ts")
         data = event.get("channels").get("waitress")
 
-        taus.append(relative_time(start_time, end_time, ts))
+        taus.append(ts)
         series.append(data)
 
-        if len(series) < 10:
+        if len(series) < 2:
             print("accumulating data")
             return
 
@@ -100,15 +103,27 @@ def main():
         model_args = dict(
             inputs=[train_current_data],
             target=[train_target_data],
-            step_size=0.001,
+            steps=100,
             next_tau=train_target_tau,
-            learning_rate=0.1,
+            learning_rate=0.0001,
         )
 
-        losses_tiny.append((lifetime, tiny.step(**model_args) + 10))
-        losses_small.append((lifetime, small.step(**model_args) + 20))
-        losses_medium.append((lifetime, medium.step(**model_args) + 30))
-        losses_large.append((lifetime, large.step(**model_args)))
+        # losses_tiny.append((lifetime, tiny.step(**model_args)))
+        # losses_small.append((lifetime, small.step(**model_args)))
+        # losses_medium.append((lifetime, medium.step(**model_args)))
+        # losses_large.append((lifetime, large.step(**model_args)))
+
+        # print(tiny.ouf[0].state)
+        # print(small.ouf[0].state)
+        # print(medium.ouf[0].state)
+        # print(large.ouf[0].state)
+
+        small.step(**model_args)
+
+        actual.append((lifetime, data))
+        pred_small.append((lifetime, small.ouf[0].state))
+
+        print(data, small.ouf[0].state)
 
         while len(series) > 10:
             series.popleft()

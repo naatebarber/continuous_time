@@ -12,6 +12,21 @@
       "wave": "Sinusoidal",
       "offset": 0.0,
       "period": 0
+    },
+    {
+      "wave": "Spike",
+      "offset": 5.0,
+      "period": 10
+    },
+    {
+      "wave": "SpikeDecay",
+      "offset": 10.0,
+      "period": 8
+    },
+    {
+      "wave": "Pwm",
+      "offset": 1.0,
+      "period": 12
     }
   ]
 }

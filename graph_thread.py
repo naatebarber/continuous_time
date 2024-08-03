@@ -41,7 +41,6 @@ class GraphThread(Thread):
             return [*lns]
 
         def update(frame):
-            print("update")
             for ix, it in enumerate(self.iters):
                 while len(it) > 0:
                     frame = it.popleft()
