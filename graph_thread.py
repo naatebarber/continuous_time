@@ -58,6 +58,8 @@ class GraphThread(Thread):
 
                     lns[ix].set_data(*datas[ix])
 
+            # clarity
+            # cl(x/y)(mn/mx) = current limit x/y minimum/maximum
             clxmn, clxmx = ax.get_xlim()
             clymn, clymx = ax.get_ylim()
 
