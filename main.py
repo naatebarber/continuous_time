@@ -1,3 +1,4 @@
+import sys
 from collections import deque
 from typing import Dict
 
@@ -14,6 +15,7 @@ if __name__ == "__main__":
     global outputs
 
     targets = deque()
+    xy_targets = deque()
     losses = {k: deque() for k in networks.keys()}
     outputs = {k: deque() for k in networks.keys()}
 
@@ -25,9 +27,9 @@ if __name__ == "__main__":
         if len(targets) < 2:
             return
 
-        learning_rate = 0.0001
+        learning_rate = 0.0004
         steps = 30
-        retain = 1000
+        retain = 100
 
         for network_name, network in networks.items():
             network_state = network.step(
@@ -45,9 +47,15 @@ if __name__ == "__main__":
             output, loss = network_state
 
             outputs[network_name].append((lifetime, output[0]))
+            xy_targets.append((lifetime, targets[-1][0]))
             losses[network_name].append((lifetime, loss))
 
-    graph_thread = GraphThread(iters=losses.values())
+    graph_thread = None
+    if len(sys.argv) >= 2 and sys.argv[1] == "loss":
+        graph_thread = GraphThread(iters=losses.values())
+    else:
+        graph_thread = GraphThread(iters=[*outputs.values(), xy_targets])
+
     feed_thread = FeedThread(
         address="tcp://127.0.0.1:1201", topic="waitress", handler=feed_handler
     )
