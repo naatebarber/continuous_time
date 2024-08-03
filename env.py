@@ -2,7 +2,7 @@ import json
 import time
 from collections import deque
 from traceback import print_exc
-from typing import Callable, Dict, TypedDict, Any
+from typing import Any, Callable, Dict, TypedDict
 
 import zmq
 
@@ -66,9 +66,14 @@ def main():
 
     taus = deque()
     series = deque()
-    losses = deque()
 
-    gt = GraphThread(losses)
+    losses_tiny = deque()
+    losses_small = deque()
+    losses_medium = deque()
+    losses_large = deque()
+
+    gt = GraphThread([losses_tiny, losses_small, losses_medium, losses_large])
+
     gt.daemon = True
     gt.start()
 
@@ -100,9 +105,10 @@ def main():
             learning_rate=0.1,
         )
 
-        loss = large.step(**model_args)
-        print(loss)
-        losses.append((lifetime, loss))
+        losses_tiny.append((lifetime, tiny.step(**model_args) + 10))
+        losses_small.append((lifetime, small.step(**model_args) + 20))
+        losses_medium.append((lifetime, medium.step(**model_args) + 30))
+        losses_large.append((lifetime, large.step(**model_args)))
 
         while len(series) > 10:
             series.popleft()
