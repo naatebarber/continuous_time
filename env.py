@@ -105,7 +105,7 @@ def main():
             target=[train_target_data],
             steps=100,
             next_tau=train_target_tau,
-            learning_rate=0.0001,
+            learning_rate=0.00001,
         )
 
         # losses_tiny.append((lifetime, tiny.step(**model_args)))

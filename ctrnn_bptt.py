@@ -13,6 +13,7 @@ class Neuron:
         self.nexto: Dict[Neuron, float] = {}
 
         self.state_history = deque()
+        self.tau_history = deque()
 
     def bind(self, neu, weight: float):
         new_c = neu not in self.nexto
@@ -25,7 +26,8 @@ class Neuron:
 
     @staticmethod
     def sigmoid(x: float):
-        return 1 / (1 + np.exp(-x))
+        clipped_x = np.clip(x, -500, 500)
+        return 1 / (1 + np.exp(-clipped_x))
 
     @staticmethod
     def dsigmoid(x: float):
@@ -51,6 +53,7 @@ class Neuron:
         self.tau = next_tau
 
         self.state_history.appendleft(self.state)
+        self.tau_history.appendleft(self.tau)
 
 
 class CTRNN:
@@ -71,6 +74,9 @@ class CTRNN:
         self.ouf: List[Neuron] = []
 
         self.tau = None
+
+        self.target_history: List[List[float]] = []
+        self.tau_history: List[float] = []
 
     def set_tau(self, tau: float):
         self.tau = tau
@@ -160,6 +166,16 @@ class CTRNN:
 
         return [neu.state for neu in self.ouf]
 
+    def get_targets(self, spot_tau: float):
+        target_ix = len(self.target_history) - 1
+        for i in reversed(range(len(self.tau_history))):
+            if self.tau_history[i] > spot_tau:
+                target_ix = i
+            else:
+                break
+
+        return self.target_history[target_ix]
+
     def backward(self, target: List[float], learning_rate: float):
         if len(self.ouf) != len(target):
             raise Exception(
@@ -167,25 +183,23 @@ class CTRNN:
                 % (len(self.ouf), len(target))
             )
 
-        loss_fn = lambda pred, targ: (pred - targ) ** 2
-        loss = [loss_fn(neu.state, target[i]) for i, neu in enumerate(self.ouf)]
-        avg_loss = np.mean(loss)
-
         weight_gradients = {neu: {} for neu in self.neurons}
+
         for neu in self.neurons:
             for other_neu in neu.nexto:
                 weight_gradients[neu][other_neu] = 0.0
 
+        # todo ensure all neurons state history and tau history are the same length
         num_steps = len(self.ouf[0].state_history)
+
         for t in range(num_steps):
             delta = {neu: 0.0 for neu in self.neurons}
 
+            targets = self.get_targets(self.ouf[0].tau_history[t])
+
             for i, neu in enumerate(self.ouf):
-                output_grad = (
-                    2
-                    * (Neuron.sigmoid(neu.state_history[t]) - target[i])
-                    * Neuron.dsigmoid(neu.state_history[t])
-                )
+                # TODO target is now always reflecting last state.
+                output_grad = 2 * (neu.state_history[t] - targets[i])
                 delta[neu] = output_grad
 
             for neu in self.neurons:
@@ -207,21 +221,22 @@ class CTRNN:
             for other_neu, gradient in weight_gradients[neu].items():
                 neu.nexto[other_neu] -= learning_rate * gradient
 
-        return avg_loss
-
     def step(
         self,
         inputs: List[float],
-        target: List[float],
-        steps: int,
         next_tau: float,
+        steps: int,
+        target: List[float],
         learning_rate: float,
     ):
+        self.target_history.append(target)
+        self.tau_history.append(next_tau)
+
         self.forward(inputs=inputs, steps=steps, current_time=next_tau)
         loss = self.backward(target=target, learning_rate=learning_rate)
 
         for neu in self.neurons:
-            while len(neu.state_history) > steps * 20:
+            while len(neu.state_history) > steps * 10:
                 neu.state_history.pop()
 
         return loss
