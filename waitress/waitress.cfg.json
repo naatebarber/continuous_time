@@ -1,0 +1,32 @@
+{
+  "pub_to": "tcp://127.0.0.1:1201",
+  "channel": "waitress",
+  "sleep": 0.02,
+  "step": 1.0,
+  "offsetv": 100,
+  "minv": 0.0,
+  "maxv": 10.0,
+  "noise": 0.0,
+  "waves": [
+    {
+      "wave": "Sinusoidal",
+      "offset": 0.0,
+      "period": 0
+    },
+    {
+      "wave": "Spike",
+      "offset": 5.0,
+      "period": 10
+    },
+    {
+      "wave": "SpikeDecay",
+      "offset": 10.0,
+      "period": 8
+    },
+    {
+      "wave": "Pwm",
+      "offset": 1.0,
+      "period": 12
+    }
+  ]
+}
