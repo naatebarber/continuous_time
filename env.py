@@ -6,7 +6,7 @@ from typing import Any, Callable, Dict, TypedDict
 
 import zmq
 
-from ctrnn_bptt import CTRNN, Neuron
+from ctrnn import CTRNN, Neuron
 from graph_thread import GraphThread
 
 # For use with snail waitress noisy feed generator
