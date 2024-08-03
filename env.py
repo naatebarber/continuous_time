@@ -1,12 +1,11 @@
 import json
 import time
 from collections import deque
-from traceback import print_exc
 from typing import Any, Callable, Dict, TypedDict
 
 import zmq
 
-from ctrnn import CTRNN, Neuron
+from ctrnn2 import CTRNN, Neuron
 from graph_thread import GraphThread
 
 # For use with snail waitress noisy feed generator
@@ -40,25 +39,12 @@ def env(handler: Callable[[Frame, int], Any]):
                 lifetime += 1
 
         except Exception as e:
-            print_exc(e)
-
-
-def cyclical_time(window: float, current: float):
-    m = current % window
-    t = m / window
-    return t
-
-
-def relative_time(start_time: float, end_time: float, current: float):
-    c = current - start_time
-    e = end_time - start_time
-    t = c / e
-    return t
+            print(e)
 
 
 def main():
     # tiny = CTRNN(8, 1, 1).weave()
-    small = CTRNN(12, 1, 1).weave()
+    small = CTRNN(size=12, d_in=1, d_out=1, density=0.5)
     # medium = CTRNN(20, 1, 1).weave()
     # large = CTRNN(40, 1, 1).weave()
 

@@ -1,8 +1,9 @@
-from typing import List, Any, Dict, Callable
+import random
 from collections import deque
+from typing import Any, Callable, Dict, List
+
 import numpy as np
 from numpy.typing import ArrayLike
-import random
 
 
 class Neuron:
@@ -11,7 +12,7 @@ class Neuron:
         self.tau = None
         self.states = deque()
         self.taus = deque()
-        self.targets = deque()
+        self.targets = None
 
     def initialize(self, state: float, tau: float):
         self.state = state
@@ -19,7 +20,7 @@ class Neuron:
 
     @staticmethod
     def sigmoid(x: float):
-        clipped_x = np.clip(-x, -500, 500)
+        clipped_x = np.clip(x, -500, 500)
         return 1 / (1 + np.exp(clipped_x))
 
     @staticmethod
@@ -62,23 +63,27 @@ class Neuron:
         self.taus.append(self.tau)
 
     def cache_target(self, target_state: float):
+        if self.targets is None:
+            self.targets = deque()
+
         self.targets.append(target_state)
 
     def drain(self, retain: int):
-        ejected_states = 0
-        ejected_taus = 0
+        if len(self.taus) != len(self.states):
+            raise Exception("neuron memory is out of sync - state:tau mismatch")
+
+        if self.targets is not None and len(self.targets) != len(self.states):
+            raise Exception(
+                "output neuron memory is out of sync - state:target mismatch"
+            )
 
         while len(self.states) > retain:
-            self.states.pop()
-            ejected_states += 1
-        while len(self.taus) > retain:
-            self.taus.pop()
-            ejected_taus += 1
+            self.states.popleft()
+            self.taus.popleft()
+            if self.targets is not None:
+                self.targets.popleft()
 
-        if ejected_taus != ejected_states:
-            raise Exception("neuron memory is out of sync - state tau mismatch")
-
-        return ejected_states
+        return len(self.states)
 
 
 class CTRNN:
@@ -110,15 +115,17 @@ class CTRNN:
 
     def init_weights_matrix(self):
         self.weights = np.zeros((self.size, self.size))
-        assignable = list(
-            np.array(
-                [[(y, x) for x in range(self.size)] for y in range(self.size)]
-            ).flatten()
+        index_matrix: List[set] = list(
+            [[(x, y) for x in range(self.size)] for y in range(self.size)]
         )
-        random.shuffle(assignable)
+        index_list = []
+        for row in index_matrix:
+            index_list.extend(row)
 
-        for _ in range(self.target_connections):
-            y, x = assignable.pop()
+        random.shuffle(index_list)
+
+        for _ in range(int(self.target_connections)):
+            x, y = index_list.pop()
             self.weights[y][x] = self.init_weight()
 
         self.neurons = [Neuron() for _ in range(self.size)]
@@ -168,7 +175,9 @@ class CTRNN:
                     neuron.cache_target(target[output_ix])
                     output_ix += 1
 
-                neuron.euler_step(self.tau, self.weights[i], self.neurons)
+                neuron.euler_step(
+                    self.tau, self.weights[i], self.neurons, external_influence=0
+                )
 
         return [neuron.state for neuron in self.output_neurons]
 
@@ -176,17 +185,17 @@ class CTRNN:
         weight_gradient = np.zeros((self.size, self.size))
         losses = [[] for _ in range(self.d_out)]
 
-        for t in reversed(range(self.backward_steps)):
+        for t in reversed(range(self.total_steps)):
             delta = np.zeros((self.size))
 
             for i, output_neuron in enumerate(self.output_neurons):
                 error = output_neuron.states[t] - output_neuron.targets[t]
 
                 losses[i].append(error**2)
-                output_grad = 2 * (error)
+                grad = 2 * (error)
 
                 neuron_ix = self.neurons.index(output_neuron)
-                delta[neuron_ix] = output_grad
+                delta[neuron_ix] = grad
 
             for i in range(len(self.neurons)):
                 if delta[i] == 0.0:
@@ -194,6 +203,9 @@ class CTRNN:
 
                 neuron_weights = self.weights[i]
                 for j, weight in enumerate(neuron_weights):
+                    if weight <= 0:
+                        continue
+
                     grad = delta[i] * Neuron.dsigmoid(self.neurons[j].states[t])
                     weight_gradient[i][j] += grad
                     delta[j] += (
@@ -218,17 +230,18 @@ class CTRNN:
     ):
         self.targets.append(target)
         self.target_taus.append(to_tau)
-        self.total_steps += steps
 
         network_output = self.forward(inputs, to_tau, steps, target)
+        if network_output is None:
+            return
 
-        ejected = set([neuron.drain(retain) for neuron in self.neurons])
-        if len(ejected) > 1:
+        bptt_steps = set([neuron.drain(retain) for neuron in self.neurons])
+        if len(bptt_steps) > 1:
             raise Exception(
                 "network neuron memory mismatch - difference between neurons in number of ejected states"
             )
-        ejected = ejected.pop()
-        self.total_steps -= ejected
+        bptt_steps = bptt_steps.pop()
+        self.total_steps = bptt_steps
 
         network_loss = self.backward(learning_rate)
 

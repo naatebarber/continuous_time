@@ -21,20 +21,20 @@ class GraphThread(Thread):
     def pop_color(self):
         return self.colors.pop(0)
 
-    def run(self):
+    def go(self):
         fig, ax = plt.subplots()
         xdata, ydata = [], []
 
         datas = [[[], []] for _ in self.iters]
 
         lns = [
-            plt.plot([], [], "b-", animated=True, color=self.pop_color())[0]
+            plt.plot([], [], animated=True, color=self.pop_color())[0]
             for _ in self.iters
         ]
 
         def init():
-            ax.set_xlim(self.mnx, self.mxx)
-            ax.set_ylim(self.mny, self.mxy)
+            ax.set_xlim(self.mnx - 20, self.mxx + 20)
+            ax.set_ylim(self.mny - 20, self.mxy + 20)
 
             [ln.set_data([], []) for ln in lns]
 
@@ -57,22 +57,17 @@ class GraphThread(Thread):
 
                     lns[ix].set_data(*datas[ix])
 
-            # clarity
-            # cl(x/y)(mn/mx) = current limit x/y minimum/maximum
-            clxmn, clxmx = ax.get_xlim()
-            clymn, clymx = ax.get_ylim()
-
-            if (
-                self.mnx < clxmn
-                or self.mxx > clxmx
-                or self.mny < clymn
-                or self.mxy > clymx
-            ):
-                ax.set_xlim(2 * self.mnx, 2 * self.mxx)
-                ax.set_ylim(2 * self.mny, 2 * self.mxy)
-                fig.canvas.draw()
+            ax.set_xlim(self.mnx - 20, self.mxx + 20)
+            ax.set_ylim(self.mny - 20, self.mxy + 20)
+            fig.canvas.draw()
 
             return [*lns]
 
         a = animation.FuncAnimation(fig, update, init_func=init, blit=True, interval=30)
         plt.show()
+
+    def run(self):
+        self.go()
+
+    def run_blocking(self):
+        self.go()
