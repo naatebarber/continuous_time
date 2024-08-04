@@ -1,0 +1,11 @@
+{
+  "pull_from": "tcp://127.0.0.1:1201",
+  "push_to": "tcp://127.0.0.1:1202",
+  "size": 24,
+  "d_in": 1,
+  "d_out": 1,
+  "density": 0.8,
+  "learning_rate": 0.001,
+  "steps": 50,
+  "retain": 1000
+}
