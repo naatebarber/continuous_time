@@ -54,16 +54,16 @@ class GraphThread(Thread):
 
                     datas[ix][0].append(frame[0])
                     datas[ix][1].append(frame[1])
-
+                        
                     lns[ix].set_data(*datas[ix])
-
+                                        
             ax.set_xlim(self.mnx - 20, self.mxx + 20)
             ax.set_ylim(self.mny - 20, self.mxy + 20)
             fig.canvas.draw()
 
             return [*lns]
 
-        a = animation.FuncAnimation(fig, update, init_func=init, blit=True, interval=30)
+        a = animation.FuncAnimation(fig, update, init_func=init, blit=True, interval=20)
         plt.show()
 
     def run(self):

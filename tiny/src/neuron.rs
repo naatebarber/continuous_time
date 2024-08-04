@@ -64,7 +64,7 @@ impl Neuron {
                 + (self
                     .connections
                     .iter()
-                    .map(|(neuron, weight)| (**neuron).state * weight)
+                    .map(|(neuron, weight)| Neuron::sigmoid((**neuron).state) * weight)
                     .sum::<f64>())
                 + external_influence
         }

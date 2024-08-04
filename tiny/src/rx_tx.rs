@@ -83,19 +83,25 @@ pub fn go(config: Config, mut model: Network) -> Result<(), Box<dyn Error>> {
                         targets,
                     } = step_frame;
 
-                    let (outputs, loss) = model.step(
+                    let (outputs, loss) = match model.step(
                         inputs,
                         tau,
                         config.steps,
                         targets,
                         config.retain,
                         config.learning_rate,
-                    );
+                    ) {
+                        Some(state) => state,
+                        None => {
+                            println!("(tiny engine) no step state - network not ready");
+                            continue;
+                        }
+                    };
 
                     let out_frame = OutputFrame {
                         outputs,
                         tau: model.tau,
-                        loss: loss.unwrap_or(0.),
+                        loss,
                     };
 
                     match pack_push_sock(&push_sock, "out", out_frame) {
@@ -117,7 +123,13 @@ pub fn go(config: Config, mut model: Network) -> Result<(), Box<dyn Error>> {
 
                     let InfFrame { inputs, tau } = inf_frame;
 
-                    let outputs = model.forward(inputs, tau, config.steps, None);
+                    let outputs = match model.forward(inputs, tau, config.steps, None) {
+                        Some(state) => state,
+                        None => {
+                            println!("(tiny engine) no forward state - network not ready");
+                            continue;
+                        }
+                    };
 
                     let out_frame = OutputFrame {
                         outputs,

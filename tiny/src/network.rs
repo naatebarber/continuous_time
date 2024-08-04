@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 use crate::neuron::{Neuron, NeuronType};
 use rand::{prelude::*, thread_rng, Rng};
@@ -11,11 +11,14 @@ pub struct Network {
     pub desired_connections: f64,
 
     pub neurons: Vec<Neuron>,
-    pub input_neurons: Vec<*const Neuron>,
-    pub output_neurons: Vec<*const Neuron>,
+    pub input_neurons: Vec<*mut Neuron>,
+    pub output_neurons: Vec<*mut Neuron>,
 
     pub tau: f64,
     pub steps: usize,
+
+    pub initialized: bool,
+    pub lifecycle: usize,
 }
 
 impl Network {
@@ -33,6 +36,9 @@ impl Network {
             desired_connections: 0.,
             tau: 0.,
             steps: 0,
+
+            initialized: false,
+            lifecycle: 0,
         }
     }
 
@@ -56,11 +62,11 @@ impl Network {
             self.neurons.push(Neuron::new());
         }
 
-        let mut input_output_neuron_pointers: Vec<*const Neuron> = self
+        let mut input_output_neuron_pointers: Vec<*mut Neuron> = self
             .neurons
-            .iter()
-            .map(|n| n as *const Neuron)
-            .collect::<Vec<*const Neuron>>();
+            .iter_mut()
+            .map(|n| n as *mut Neuron)
+            .collect::<Vec<*mut Neuron>>();
 
         input_output_neuron_pointers.shuffle(&mut rng);
 
@@ -117,13 +123,42 @@ impl Network {
         }
     }
 
+    pub fn init(&mut self, inputs: Vec<f64>, next_tau: f64) {
+        if self.initialized == false {
+            self.tau = next_tau;
+
+            for neuron in self.neurons.iter_mut() {
+                neuron.tau = next_tau;
+            }
+
+            unsafe {
+                for output_neuron in self.output_neurons.iter() {
+                    (**output_neuron).targets = Some(VecDeque::new());
+                    (**output_neuron).neuron_type = NeuronType::Output;
+                }
+
+                for (i, input_neuron) in self.input_neurons.iter().enumerate() {
+                    (**input_neuron).state = inputs[i];
+                    (**input_neuron).neuron_type = NeuronType::Input;
+                }
+            }
+
+            self.initialized = true;
+        }
+    }
+
     pub fn forward(
         &mut self,
         inputs: Vec<f64>,
         next_tau: f64,
         steps: usize,
         targets: Option<Vec<f64>>,
-    ) -> Vec<f64> {
+    ) -> Option<Vec<f64>> {
+        if !self.initialized {
+            self.init(inputs, next_tau);
+            return None;
+        }
+
         let step_size = (next_tau - self.tau) / steps as f64;
 
         while self.tau < next_tau {
@@ -152,19 +187,23 @@ impl Network {
             self.tau += step_size;
         }
 
-        self.neurons
+        let output_state = self
+            .neurons
             .iter()
             .filter(|n| match n.neuron_type {
                 NeuronType::Output => true,
                 _ => false,
             })
             .map(|n| n.state)
-            .collect::<Vec<f64>>()
+            .collect::<Vec<f64>>();
+
+        Some(output_state)
     }
 
     pub fn backward(&mut self, steps: usize, learning_rate: f64) -> Option<f64> {
         let mut weight_gradient: HashMap<*const Neuron, HashMap<*const Neuron, f64>> =
             HashMap::new();
+
         let mut losses: Vec<Vec<f64>> = (0..self.neurons.len())
             .map(|_| vec![])
             .collect::<Vec<Vec<f64>>>();
@@ -187,7 +226,7 @@ impl Network {
                     losses[i].push(error.powi(2));
 
                     let grad = 2. * error;
-                    delta.insert(*output_neuron, grad);
+                    delta.insert(*output_neuron as *const Neuron, grad);
                 }
 
                 for neuron in self.neurons.iter() {
@@ -251,7 +290,14 @@ impl Network {
             });
         }
 
-        Some(0.)
+        let mean_neuron_losses = losses
+            .into_iter()
+            .filter(|neuron_loss| neuron_loss.len() > 0)
+            .map(|neuron_loss| neuron_loss.iter().sum::<f64>() / neuron_loss.len() as f64)
+            .collect::<Vec<f64>>();
+        let mean_loss = mean_neuron_losses.iter().sum::<f64>() / mean_neuron_losses.len() as f64;
+
+        Some(mean_loss)
     }
 
     pub fn step(
@@ -262,8 +308,13 @@ impl Network {
         targets: Vec<f64>,
         retain: usize,
         learning_rate: f64,
-    ) -> (Vec<f64>, Option<f64>) {
-        let network_output = self.forward(inputs, next_tau, steps, Some(targets));
+    ) -> Option<(Vec<f64>, f64)> {
+        self.lifecycle += 1;
+
+        let network_output = match self.forward(inputs, next_tau, steps, Some(targets)) {
+            Some(os) => os,
+            None => return None,
+        };
 
         let cross_neuron_bptt_steps = self
             .neurons
@@ -281,8 +332,11 @@ impl Network {
             panic!("(tiny) neurons fell out of sync!");
         }
 
-        let loss = self.backward(*reference_steps, learning_rate);
+        let loss = match self.backward(*reference_steps, learning_rate) {
+            Some(l) => l,
+            None => return None,
+        };
 
-        return (network_output, loss);
+        return Some((network_output, loss));
     }
 }

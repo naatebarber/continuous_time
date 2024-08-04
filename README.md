@@ -12,6 +12,7 @@ cargo run -- -f waitress.config.json
 
 shell 2, attach ctrnn env:
 ```bash
+cd proto
 python env.py
 ```
 
@@ -25,5 +26,11 @@ cargo run -- -f waitress.config.json
 
 shell 2, attach ctrnn2 env:
 ```bash
+cd proto
 python main.py
+```
+
+### run v3
+```bash
+
 ```
