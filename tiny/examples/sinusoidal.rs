@@ -19,12 +19,12 @@ fn time_dependent_sin(ts: f64) -> f64 {
 }
 
 fn main() {
-    let mut network = Network::new(20, 1, 1);
-    network.weave(1.);
+    let mut network = Network::new(12, 1, 1);
+    network.weave(0.5);
 
-    let learning_rate = 0.001;
-    let steps = 30;
-    let retain = 200;
+    let learning_rate = 0.004;
+    let steps = 100;
+    let retain = 100;
 
     let interval = 0.1;
 
@@ -45,7 +45,10 @@ fn main() {
 
         if let Some(output) = output {
             // println!("(tiny example) output {:?} target {:?}", output.0, vec![target]);
-            println!("(tiny example) loss {:?}", output.1);
+            println!(
+                "(tiny example) loss {:?} input {:?} output {:?}",
+                output.1, input, output.0[0]
+            );
         }
 
         if get_ts() < target_tau {
