@@ -3,8 +3,8 @@ use getopts::Options;
 use std::{env, process};
 
 pub use tiny::config::Config;
-use tiny::network::Network;
 pub use tiny::rx_tx;
+use tiny::HashNetwork;
 
 fn parse_args() -> String {
     fn print_usage(program: &str, opts: Options) {
@@ -71,7 +71,7 @@ fn main() {
         }
     };
 
-    let mut network = Network::new(config.size, config.d_in, config.d_out);
+    let mut network = HashNetwork::new(config.size, config.d_in, config.d_out);
 
     network.weave(config.density);
 

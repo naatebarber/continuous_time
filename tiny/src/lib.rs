@@ -1,7 +1,7 @@
 pub mod api;
 pub mod config;
-pub mod network;
-pub mod neuron;
+pub mod networks;
 pub mod rx_tx;
 
-pub use network::Network;
+pub use networks::hash::HashNetwork;
+pub use networks::ssm::SsmNetwork;

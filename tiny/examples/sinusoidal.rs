@@ -1,7 +1,7 @@
 use core::f64;
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tiny::Network;
+use tiny::HashNetwork;
 
 pub fn get_ts() -> f64 {
     let start = SystemTime::now();
@@ -19,7 +19,7 @@ fn time_dependent_sin(ts: f64) -> f64 {
 }
 
 fn main() {
-    let mut network = Network::new(12, 1, 1);
+    let mut network = HashNetwork::new(12, 1, 1);
     network.weave(0.5);
 
     let learning_rate = 0.004;
