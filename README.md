@@ -31,6 +31,5 @@ python main.py
 ```
 
 ### run v3
-```bash
 
-```
+

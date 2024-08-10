@@ -1,25 +1,17 @@
 use core::f64;
-use std::thread;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tiny::HashNetwork;
+use std::{thread, time::Duration};
+use tiny::ContinuousNetwork;
 
-pub fn get_ts() -> f64 {
-    let start = SystemTime::now();
-    let since_the_epoch = start
-        .duration_since(UNIX_EPOCH)
-        .expect("Time went backwards");
-    since_the_epoch.as_secs_f64()
-}
+use crate::util::get_ts;
 
-fn time_dependent_sin(ts: f64) -> f64 {
+pub fn time_dependent_sin(ts: f64) -> f64 {
     let window = 3.;
     let modulus = ts % window;
     let ratio = (modulus / window) * f64::consts::PI * 2.;
     return 20. * f64::sin(ratio);
 }
 
-fn main() {
-    let mut network = HashNetwork::new(12, 1, 1);
+pub fn match_wave(mut network: impl ContinuousNetwork) {
     network.weave(0.5);
 
     let learning_rate = 0.004;

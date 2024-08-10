@@ -4,4 +4,5 @@ pub mod networks;
 pub mod rx_tx;
 
 pub use networks::hash::HashNetwork;
+pub use networks::network::ContinuousNetwork;
 pub use networks::ssm::SsmNetwork;

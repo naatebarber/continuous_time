@@ -2,6 +2,8 @@ use ndarray::{Array1, Array2};
 use rand::{prelude::*, thread_rng, Rng};
 use std::collections::VecDeque;
 
+use super::network::ContinuousNetwork;
+
 pub enum NeuronType {
     Input,
     Hidden,
@@ -148,7 +150,41 @@ pub struct SsmNetwork {
 }
 
 impl SsmNetwork {
-    pub fn new<'a>(size: usize, d_in: usize, d_out: usize) -> SsmNetwork {
+    pub fn init_weight(&self, bound: Option<f64>, rng: &mut ThreadRng) -> f64 {
+        if let Some(bound) = bound {
+            rng.gen_range(-bound..bound)
+        } else {
+            let bound = f64::sqrt(6.) / (self.d_in + self.d_out) as f64;
+            rng.gen_range(-bound..bound)
+        }
+    }
+
+    pub fn init(&mut self, inputs: Vec<f64>, next_tau: f64) {
+        if self.initialized == false {
+            self.tau = next_tau;
+
+            for neuron in self.neurons.iter_mut() {
+                neuron.tau = next_tau;
+            }
+
+            for neuron_ix in self.output_neurons.iter() {
+                let output_neuron = &mut self.neurons[*neuron_ix];
+                output_neuron.neuron_type = NeuronType::Output;
+            }
+
+            for (i, neuron_ix) in self.input_neurons.iter().enumerate() {
+                let input_neuron = &mut self.neurons[*neuron_ix];
+                input_neuron.state = inputs[i];
+                input_neuron.neuron_type = NeuronType::Input;
+            }
+
+            self.initialized = true;
+        }
+    }
+}
+
+impl ContinuousNetwork for SsmNetwork {
+    fn new(size: usize, d_in: usize, d_out: usize) -> SsmNetwork {
         SsmNetwork {
             size,
             d_in,
@@ -169,16 +205,11 @@ impl SsmNetwork {
         }
     }
 
-    pub fn init_weight(&self, bound: Option<f64>, rng: &mut ThreadRng) -> f64 {
-        if let Some(bound) = bound {
-            rng.gen_range(-bound..bound)
-        } else {
-            let bound = f64::sqrt(6.) / (self.d_in + self.d_out) as f64;
-            rng.gen_range(-bound..bound)
-        }
+    fn get_tau(&self) -> f64 {
+        return self.tau;
     }
 
-    pub fn weave(&mut self, density: f64) {
+    fn weave(&mut self, density: f64) {
         self.density = density;
         let mut rng = thread_rng();
 
@@ -220,30 +251,7 @@ impl SsmNetwork {
         self.output_neurons = neuron_ixlist.drain(0..self.d_out).collect::<Vec<usize>>();
     }
 
-    pub fn init(&mut self, inputs: Vec<f64>, next_tau: f64) {
-        if self.initialized == false {
-            self.tau = next_tau;
-
-            for neuron in self.neurons.iter_mut() {
-                neuron.tau = next_tau;
-            }
-
-            for neuron_ix in self.output_neurons.iter() {
-                let output_neuron = &mut self.neurons[*neuron_ix];
-                output_neuron.neuron_type = NeuronType::Output;
-            }
-
-            for (i, neuron_ix) in self.input_neurons.iter().enumerate() {
-                let input_neuron = &mut self.neurons[*neuron_ix];
-                input_neuron.state = inputs[i];
-                input_neuron.neuron_type = NeuronType::Input;
-            }
-
-            self.initialized = true;
-        }
-    }
-
-    pub fn forward(
+    fn forward(
         &mut self,
         inputs: Vec<f64>,
         next_tau: f64,
@@ -312,7 +320,7 @@ impl SsmNetwork {
         Some(output_state)
     }
 
-    pub fn backward(&mut self, steps: usize, learning_rate: f64) -> Option<f64> {
+    fn backward(&mut self, steps: usize, learning_rate: f64) -> Option<f64> {
         let mut weight_gradient = Array2::<f64>::zeros((self.size, self.size));
         let mut losses = (0..self.size).map(|_| vec![]).collect::<Vec<Vec<f64>>>();
 
@@ -381,7 +389,7 @@ impl SsmNetwork {
         Some(loss)
     }
 
-    pub fn step(
+    fn step(
         &mut self,
         inputs: Vec<f64>,
         next_tau: f64,

@@ -4,7 +4,7 @@ use std::{env, process};
 
 pub use tiny::config::Config;
 pub use tiny::rx_tx;
-use tiny::HashNetwork;
+use tiny::{ContinuousNetwork, HashNetwork};
 
 fn parse_args() -> String {
     fn print_usage(program: &str, opts: Options) {
@@ -19,9 +19,10 @@ fn parse_args() -> String {
     opts.optopt(
         "f",
         "file",
-        "Waitress configuration file",
-        "/path/to/waitress.cfg.json",
+        "Tiny configuration file",
+        "/path/to/tiny.cfg.json",
     );
+
     opts.optflag(
         "g",
         "generate-config",

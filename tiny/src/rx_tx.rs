@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     api::{InfFrame, OutputFrame, StepFrame},
     config::Config,
-    HashNetwork,
+    ContinuousNetwork,
 };
 
 pub fn load_socks(
@@ -45,7 +45,7 @@ where
     Ok(())
 }
 
-pub fn go(config: Config, mut model: HashNetwork) -> Result<(), Box<dyn Error>> {
+pub fn go(config: Config, mut model: impl ContinuousNetwork) -> Result<(), Box<dyn Error>> {
     let (pull_sock, push_sock) = load_socks(&config.pull_from, &config.push_to)?;
 
     let mut socks = [pull_sock.as_poll_item(zmq::POLLIN)];
@@ -100,7 +100,7 @@ pub fn go(config: Config, mut model: HashNetwork) -> Result<(), Box<dyn Error>> 
 
                     let out_frame = OutputFrame {
                         outputs,
-                        tau: model.tau,
+                        tau: model.get_tau(),
                         loss,
                     };
 
@@ -133,7 +133,7 @@ pub fn go(config: Config, mut model: HashNetwork) -> Result<(), Box<dyn Error>> 
 
                     let out_frame = OutputFrame {
                         outputs,
-                        tau: model.tau,
+                        tau: model.get_tau(),
                         loss: 0.,
                     };
 

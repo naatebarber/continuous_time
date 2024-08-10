@@ -1,6 +1,8 @@
 use rand::{prelude::*, thread_rng, Rng};
 use std::collections::{HashMap, VecDeque};
 
+use super::network::ContinuousNetwork;
+
 pub enum NeuronType {
     Input,
     Hidden,
@@ -144,7 +146,42 @@ pub struct HashNetwork {
 }
 
 impl HashNetwork {
-    pub fn new<'a>(size: usize, d_in: usize, d_out: usize) -> HashNetwork {
+    pub fn init_weight(&self, bound: Option<f64>, rng: &mut ThreadRng) -> f64 {
+        if let Some(bound) = bound {
+            rng.gen_range(-bound..bound)
+        } else {
+            let bound = f64::sqrt(6.) / (self.d_in + self.d_out) as f64;
+            rng.gen_range(-bound..bound)
+        }
+    }
+
+    fn init(&mut self, inputs: Vec<f64>, next_tau: f64) {
+        if self.initialized == false {
+            self.tau = next_tau;
+
+            for neuron in self.neurons.iter_mut() {
+                neuron.tau = next_tau;
+            }
+
+            unsafe {
+                for output_neuron in self.output_neurons.iter() {
+                    (**output_neuron).targets = Some(VecDeque::new());
+                    (**output_neuron).neuron_type = NeuronType::Output;
+                }
+
+                for (i, input_neuron) in self.input_neurons.iter().enumerate() {
+                    (**input_neuron).state = inputs[i];
+                    (**input_neuron).neuron_type = NeuronType::Input;
+                }
+            }
+
+            self.initialized = true;
+        }
+    }
+}
+
+impl ContinuousNetwork for HashNetwork {
+    fn new<'a>(size: usize, d_in: usize, d_out: usize) -> HashNetwork {
         HashNetwork {
             size,
             d_in,
@@ -164,16 +201,11 @@ impl HashNetwork {
         }
     }
 
-    pub fn init_weight(&self, bound: Option<f64>, rng: &mut ThreadRng) -> f64 {
-        if let Some(bound) = bound {
-            rng.gen_range(-bound..bound)
-        } else {
-            let bound = f64::sqrt(6.) / (self.d_in + self.d_out) as f64;
-            rng.gen_range(-bound..bound)
-        }
+    fn get_tau(&self) -> f64 {
+        return self.tau;
     }
 
-    pub fn weave(&mut self, density: f64) {
+    fn weave(&mut self, density: f64) {
         self.density = density;
         let mut rng = thread_rng();
 
@@ -245,31 +277,7 @@ impl HashNetwork {
         }
     }
 
-    pub fn init(&mut self, inputs: Vec<f64>, next_tau: f64) {
-        if self.initialized == false {
-            self.tau = next_tau;
-
-            for neuron in self.neurons.iter_mut() {
-                neuron.tau = next_tau;
-            }
-
-            unsafe {
-                for output_neuron in self.output_neurons.iter() {
-                    (**output_neuron).targets = Some(VecDeque::new());
-                    (**output_neuron).neuron_type = NeuronType::Output;
-                }
-
-                for (i, input_neuron) in self.input_neurons.iter().enumerate() {
-                    (**input_neuron).state = inputs[i];
-                    (**input_neuron).neuron_type = NeuronType::Input;
-                }
-            }
-
-            self.initialized = true;
-        }
-    }
-
-    pub fn forward(
+    fn forward(
         &mut self,
         inputs: Vec<f64>,
         next_tau: f64,
@@ -322,7 +330,7 @@ impl HashNetwork {
         Some(output_state)
     }
 
-    pub fn backward(&mut self, steps: usize, learning_rate: f64) -> Option<f64> {
+    fn backward(&mut self, steps: usize, learning_rate: f64) -> Option<f64> {
         let mut weight_gradient: HashMap<*const Neuron, HashMap<*const Neuron, f64>> =
             HashMap::new();
 
@@ -362,10 +370,6 @@ impl HashNetwork {
                     for (other_neuron, weight) in neuron.connections.iter() {
                         let grad = neuron_delta * Neuron::dsigmoid((**other_neuron).states[t]);
 
-                        if !weight_gradient.contains_key(&np) {
-                            weight_gradient.insert(np, HashMap::new());
-                        }
-
                         match weight_gradient.get_mut(&np) {
                             Some(ng) => match ng.get_mut(other_neuron) {
                                 Some(existing_gradient) => {
@@ -375,12 +379,10 @@ impl HashNetwork {
                                     ng.insert(*other_neuron, grad);
                                 }
                             },
-                            _ => (),
+                            None => {
+                                weight_gradient.insert(np, HashMap::new());
+                            }
                         };
-
-                        if !delta.contains_key(other_neuron) {
-                            delta.insert(*other_neuron, 0.);
-                        }
 
                         match delta.get_mut(other_neuron) {
                             Some(d) => {
@@ -388,7 +390,9 @@ impl HashNetwork {
                                     * weight
                                     * Neuron::dsigmoid((**other_neuron).states[t])
                             }
-                            None => (),
+                            None => {
+                                delta.insert(*other_neuron, 0.);
+                            }
                         }
                     }
                 }
@@ -422,7 +426,7 @@ impl HashNetwork {
         Some(mean_loss)
     }
 
-    pub fn step(
+    fn step(
         &mut self,
         inputs: Vec<f64>,
         next_tau: f64,
