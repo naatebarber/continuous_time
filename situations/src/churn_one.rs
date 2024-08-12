@@ -3,7 +3,7 @@ use tiny::ContinuousNetwork;
 
 use crate::util::get_ts;
 
-pub fn churn_one(mut a: impl ContinuousNetwork) {
+pub fn churn_one(mut a: impl ContinuousNetwork, steps: usize, retain: usize) {
     let mut rng = thread_rng();
 
     let mut a_completed_steps = 0;
@@ -18,7 +18,7 @@ pub fn churn_one(mut a: impl ContinuousNetwork) {
         let random_x = rng.gen::<f64>();
         let random_y = rng.gen::<f64>();
 
-        a.step(vec![random_x], a_tau, 50, vec![random_y], 1000, 0.001);
+        a.step(vec![random_x], a_tau, steps, vec![random_y], retain, 0.001);
 
         a_completed_steps += 1;
         a_tau += 0.1;

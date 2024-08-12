@@ -146,6 +146,26 @@ pub struct HashNetwork {
 }
 
 impl HashNetwork {
+    pub fn new<'a>(size: usize, d_in: usize, d_out: usize) -> HashNetwork {
+        HashNetwork {
+            size,
+            d_in,
+            d_out,
+            density: 0.,
+
+            neurons: Vec::new(),
+            input_neurons: Vec::new(),
+            output_neurons: Vec::new(),
+
+            desired_connections: 0.,
+            tau: 0.,
+            steps: 0,
+
+            initialized: false,
+            lifecycle: 0,
+        }
+    }
+
     pub fn init_weight(&self, bound: Option<f64>, rng: &mut ThreadRng) -> f64 {
         if let Some(bound) = bound {
             rng.gen_range(-bound..bound)
@@ -181,26 +201,6 @@ impl HashNetwork {
 }
 
 impl ContinuousNetwork for HashNetwork {
-    fn new<'a>(size: usize, d_in: usize, d_out: usize) -> HashNetwork {
-        HashNetwork {
-            size,
-            d_in,
-            d_out,
-            density: 0.,
-
-            neurons: Vec::new(),
-            input_neurons: Vec::new(),
-            output_neurons: Vec::new(),
-
-            desired_connections: 0.,
-            tau: 0.,
-            steps: 0,
-
-            initialized: false,
-            lifecycle: 0,
-        }
-    }
-
     fn get_tau(&self) -> f64 {
         return self.tau;
     }

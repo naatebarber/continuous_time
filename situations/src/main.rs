@@ -1,3 +1,5 @@
+extern crate getopts;
+
 use situations::{bake_off, churn_one};
 use tiny::ContinuousNetwork;
 
@@ -16,10 +18,15 @@ pub fn compare() {
 }
 
 pub fn perf() {
-    let mut a = tiny::HashNetwork::new(24, 1, 1);
+    let mut a = tiny::SsmNetwork::new(200, 1, 1);
     a.weave(1.);
 
-    churn_one(a);
+    let mut b = tiny::BulkPowerNetwork::new(200, 1, 1, 6).unwrap();
+    b.weave(1.);
+
+    let steps = 50;
+    let retain = 3000;
+    churn_one(b, steps, retain);
 }
 
 fn main() {

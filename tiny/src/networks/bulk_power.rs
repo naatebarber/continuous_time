@@ -2,7 +2,6 @@ use ndarray::{Array1, Array2};
 use rand::{prelude::*, thread_rng, Rng};
 use serde::{Deserialize, Serialize};
 use std::{
-    borrow::BorrowMut,
     cmp::Ordering,
     collections::VecDeque,
     error::Error,
@@ -23,10 +22,6 @@ pub enum NeuronType {
 pub struct Neuron {
     pub state: f64,
     pub tau: f64,
-    pub states: VecDeque<f64>,
-    pub taus: VecDeque<f64>,
-    pub targets: VecDeque<f64>,
-
     pub neuron_type: NeuronType,
 }
 
@@ -35,10 +30,6 @@ impl Neuron {
         Neuron {
             state: 0.,
             tau: 0.,
-            states: VecDeque::new(),
-            taus: VecDeque::new(),
-            targets: VecDeque::new(),
-
             neuron_type: NeuronType::Hidden,
         }
     }
@@ -88,59 +79,16 @@ impl Neuron {
         connections: Vec<(*const Neuron, f64)>,
         next_tau: f64,
         external_influence: f64,
-    ) {
+    ) -> (f64, f64) {
         let step_size = next_tau - self.tau;
         self.state += step_size * self.next_state(connections, external_influence);
         self.tau = next_tau;
 
-        self.states.push_back(self.state);
-        self.taus.push_back(self.tau);
-    }
-
-    pub fn cache_target(&mut self, target: f64) -> &mut Self {
-        self.targets.push_back(target);
-        self
-    }
-
-    pub fn sync<T>(a: &mut VecDeque<T>, b: &mut VecDeque<T>) {
-        let (longer, shorter) = match a.len() > b.len() {
-            true => (a, b),
-            false => (b, a),
-        };
-
-        while longer.len() > shorter.len() {
-            longer.pop_front();
-        }
-    }
-
-    pub fn drain(&mut self, retain: usize) -> usize {
-        if self.taus.len() != self.states.len() {
-            println!("(tiny) states:taus mismatch, attempting sync...");
-            Neuron::sync(&mut self.taus, &mut self.states)
-        }
-
-        if self.targets.len() > 0 {
-            if self.targets.len() != self.states.len() {
-                println!("(tiny) targets:(states:taus) mismatch, attempting sync...");
-                Neuron::sync(&mut self.targets, &mut self.states);
-                Neuron::sync(&mut self.targets, &mut self.taus);
-            }
-        }
-
-        while self.states.len() > retain {
-            self.states.pop_front();
-            self.taus.pop_front();
-
-            if self.targets.len() > 0 {
-                self.targets.pop_front();
-            }
-        }
-
-        return self.states.len();
+        return (self.state, self.tau);
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct NeuronFrame {
     pub state: f64,
     pub tau: f64,
@@ -150,7 +98,7 @@ pub struct NeuronFrame {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct BackpropFrame {
     pub step: usize,
-    pub neurons: Vec<NeuronFrame>,
+    pub neurons: Vec<Vec<NeuronFrame>>,
     pub output_neurons: Vec<usize>,
     pub ssm: Array2<f64>,
 }
@@ -212,46 +160,50 @@ impl Worker {
         let mut loss = 0.0;
 
         let mut weight_gradient = Array2::<f64>::zeros((shape[0], shape[1]));
-        let mut delta = Array1::<f64>::zeros(size);
-        let nfpt = bpf
-            .neurons
-            .iter()
-            .map(|nf| nf as *const NeuronFrame)
-            .collect::<Vec<*const NeuronFrame>>();
 
-        for neuron_ix in bpf.output_neurons.iter() {
-            let neuron = &bpf.neurons[*neuron_ix];
-            let error = neuron.state - neuron.target;
-            loss += error.powi(2);
+        for neurons in bpf.neurons.iter() {
+            let mut delta = Array1::<f64>::zeros(size);
+            let nfpt = neurons
+                .iter()
+                .map(|nf| nf as *const NeuronFrame)
+                .collect::<Vec<*const NeuronFrame>>();
 
-            let gradient = 2. * error;
+            for neuron_ix in bpf.output_neurons.iter() {
+                let neuron = &neurons[*neuron_ix];
+                let error = neuron.state - neuron.target;
+                loss += error.powi(2);
 
-            delta[*neuron_ix] += gradient;
-        }
+                let gradient = 2. * error;
 
-        for (neuron_ix, ..) in bpf.neurons.iter().enumerate() {
-            if delta[neuron_ix] == 0. {
-                continue;
+                delta[*neuron_ix] += gradient;
             }
 
-            let connections = bpf
-                .ssm
-                .row(neuron_ix)
-                .iter()
-                .enumerate()
-                .map(|(other_neuron_ix, weight)| (other_neuron_ix, nfpt[other_neuron_ix], *weight))
-                .collect::<Vec<(usize, *const NeuronFrame, f64)>>();
+            for (neuron_ix, ..) in neurons.iter().enumerate() {
+                if delta[neuron_ix] == 0. {
+                    continue;
+                }
 
-            unsafe {
-                for (other_neuron_ix, other_neuron, weight) in connections {
-                    if weight == 0. {
-                        continue;
+                let connections = bpf
+                    .ssm
+                    .row(neuron_ix)
+                    .iter()
+                    .enumerate()
+                    .map(|(other_neuron_ix, weight)| {
+                        (other_neuron_ix, nfpt[other_neuron_ix], *weight)
+                    })
+                    .collect::<Vec<(usize, *const NeuronFrame, f64)>>();
+
+                unsafe {
+                    for (other_neuron_ix, other_neuron, weight) in connections {
+                        if weight == 0. {
+                            continue;
+                        }
+
+                        let grad = delta[neuron_ix] * Neuron::dsigmoid((*other_neuron).state);
+                        weight_gradient[[neuron_ix, other_neuron_ix]] += grad;
+                        delta[other_neuron_ix] +=
+                            delta[neuron_ix] * weight * Neuron::dsigmoid((*other_neuron).state)
                     }
-
-                    let grad = delta[neuron_ix] * Neuron::dsigmoid((*other_neuron).state);
-                    weight_gradient[[neuron_ix, other_neuron_ix]] += grad;
-                    delta[other_neuron_ix] +=
-                        delta[neuron_ix] * weight * Neuron::dsigmoid((*other_neuron).state)
                 }
             }
         }
@@ -259,7 +211,7 @@ impl Worker {
         GradientFrame {
             step: bpf.step,
             gradient: weight_gradient,
-            loss,
+            loss: loss / bpf.neurons.len() as f64,
         }
     }
 
@@ -492,7 +444,7 @@ impl WorkerPool {
     }
 }
 
-pub struct PowerNetwork {
+pub struct BulkPowerNetwork {
     pub size: usize,
     pub d_in: usize,
     pub d_out: usize,
@@ -504,18 +456,27 @@ pub struct PowerNetwork {
     pub output_neurons: Vec<usize>,
     pub weights: Array2<f64>,
 
+    pub cache: VecDeque<Vec<NeuronFrame>>,
+
     pub tau: f64,
     pub steps: usize,
 
     pub initialized: bool,
-    pub lifecycle: usize,
 
-    pub worker_pool: Option<WorkerPool>,
+    pub worker_pool: WorkerPool,
 }
 
-impl PowerNetwork {
-    pub fn new(size: usize, d_in: usize, d_out: usize) -> PowerNetwork {
-        PowerNetwork {
+impl BulkPowerNetwork {
+    pub fn new(
+        size: usize,
+        d_in: usize,
+        d_out: usize,
+        workers: usize,
+    ) -> Result<BulkPowerNetwork, Box<dyn Error>> {
+        let up: String = "tcp://127.0.0.1:3600".into();
+        let down: String = "tcp://127.0.0.1:3601".into();
+
+        let bpn = BulkPowerNetwork {
             size,
             d_in,
             d_out,
@@ -527,23 +488,17 @@ impl PowerNetwork {
             output_neurons: Vec::new(),
             weights: Array2::zeros((size, size)),
 
+            cache: VecDeque::new(),
+
             tau: 0.,
             steps: 0,
 
             initialized: false,
-            lifecycle: 0,
 
-            worker_pool: None,
-        }
-    }
+            worker_pool: WorkerPool::new(up, down, workers)?,
+        };
 
-    pub fn pool(&mut self, n: usize) -> Result<(), Box<dyn Error>> {
-        let up: String = "tcp://127.0.0.1:3600".into();
-        let down: String = "tcp://127.0.0.1:3601".into();
-
-        self.worker_pool = Some(WorkerPool::new(up, down, n)?);
-
-        Ok(())
+        Ok(bpn)
     }
 
     pub fn init_weight(&self, bound: Option<f64>, rng: &mut ThreadRng) -> f64 {
@@ -578,34 +533,12 @@ impl PowerNetwork {
         }
     }
 
-    pub fn at(&self, t: usize) -> BackpropFrame {
-        let mut neurons: Vec<NeuronFrame> = vec![];
-        self.neurons.iter().for_each(|n| {
-            let state = n.states[t];
-            let tau = n.taus[t];
-            let target = match n.neuron_type {
-                NeuronType::Output => {
-                    let target = n.targets[t];
-                    target
-                }
-                _ => 0.,
-            };
-
-            neurons.push(NeuronFrame { state, tau, target })
-        });
-
-        let step = t;
-
-        BackpropFrame {
-            neurons,
-            output_neurons: self.output_neurons.clone(),
-            ssm: self.weights.clone(),
-            step,
-        }
+    fn add_cache(&mut self, step_cache: Vec<NeuronFrame>) {
+        self.cache.push_back(step_cache);
     }
 }
 
-impl ContinuousNetwork for PowerNetwork {
+impl ContinuousNetwork for BulkPowerNetwork {
     fn get_tau(&self) -> f64 {
         return self.tau;
     }
@@ -676,6 +609,8 @@ impl ContinuousNetwork for PowerNetwork {
                 .map(|n| n as *const Neuron)
                 .collect::<Vec<*const Neuron>>();
 
+            let mut step_cache: Vec<NeuronFrame> = Vec::new();
+
             for (neuron_ix, neuron) in self.neurons.iter_mut().enumerate() {
                 let connections = self
                     .weights
@@ -687,23 +622,31 @@ impl ContinuousNetwork for PowerNetwork {
                     })
                     .collect::<Vec<(*const Neuron, f64)>>();
 
+                let mut state = 0.;
+                let mut tau = 0.;
+                let mut target = 0.;
+
                 match neuron.neuron_type {
                     NeuronType::Hidden => {
-                        neuron.euler_step(connections, self.tau, 0.);
+                        (state, tau) = neuron.euler_step(connections, self.tau, 0.);
                     }
                     NeuronType::Input => {
-                        neuron.euler_step(connections, self.tau, inputs[input_ix]);
+                        (state, tau) = neuron.euler_step(connections, self.tau, inputs[input_ix]);
                         input_ix += 1;
                     }
                     NeuronType::Output => {
                         neuron.euler_step(connections, self.tau, 0.);
                         if let Some(targets) = &targets {
-                            neuron.cache_target(targets[target_ix]);
+                            target = targets[target_ix];
                             target_ix += 1;
                         }
                     }
                 }
+
+                step_cache.push(NeuronFrame { state, target, tau })
             }
+
+            self.add_cache(step_cache);
 
             self.tau += step_size;
         }
@@ -726,32 +669,45 @@ impl ContinuousNetwork for PowerNetwork {
         let mut loss = 0.;
 
         let mut frames: Vec<BackpropFrame> = vec![];
-        for i in (0..steps).rev() {
-            frames.push(self.at(i))
+        let workers = self.worker_pool.workers.len();
+        let frames_per_worker = (steps as f64 / workers as f64) as usize;
+
+        let mut offset = 0;
+        let mut limit = frames_per_worker;
+
+        for i in 0..workers {
+            if i == workers - 1 {
+                limit = steps;
+            }
+
+            let bpf = BackpropFrame {
+                neurons: self
+                    .cache
+                    .range(offset..limit)
+                    .map(|neurons| (*neurons).clone())
+                    .collect::<Vec<Vec<NeuronFrame>>>(),
+                output_neurons: self.output_neurons.clone(),
+                step: offset,
+                ssm: self.weights.clone(),
+            };
+
+            offset += frames_per_worker;
+            limit += frames_per_worker;
+
+            frames.push(bpf);
         }
 
-        match self.worker_pool.borrow_mut() {
-            Some(pool) => {
-                frames.iter().for_each(|f| {
-                    if let Err(e) = pool.send_frame("backprop", f) {
-                        println!("(power) pool invocation failed: {e}")
-                    }
-                });
+        frames.iter().for_each(|f| {
+            if let Err(e) = self.worker_pool.send_frame("backprop", f) {
+                println!("(power) pool invocation failed: {e}")
+            }
+        });
 
-                let frames = pool.receive_frames(steps, 100.);
-                frames.iter().for_each(|gradient_t| {
-                    weight_gradient += &gradient_t.gradient;
-                    loss += gradient_t.loss;
-                })
-            }
-            None => {
-                frames.into_iter().for_each(|f| {
-                    let gradient_t = Worker::backprop(f);
-                    weight_gradient += &gradient_t.gradient;
-                    loss += gradient_t.loss;
-                });
-            }
-        }
+        let frames = self.worker_pool.receive_frames(frames.len(), 100.);
+        frames.iter().for_each(|gradient_t| {
+            weight_gradient += &gradient_t.gradient;
+            loss += gradient_t.loss;
+        });
 
         weight_gradient *= learning_rate;
         self.weights -= &weight_gradient;
@@ -768,38 +724,21 @@ impl ContinuousNetwork for PowerNetwork {
         retain: usize,
         learning_rate: f64,
     ) -> Option<(Vec<f64>, f64)> {
-        self.lifecycle += 1;
-
         let network_output = match self.forward(inputs, next_tau, steps, Some(targets)) {
             Some(os) => os,
             None => return None,
         };
 
-        let cross_neuron_bptt_steps = self
-            .neurons
-            .iter_mut()
-            .map(|neuron| neuron.drain(retain))
-            .filter(|state_length| *state_length > 0)
-            .collect::<Vec<usize>>();
-
-        let reference_steps = &cross_neuron_bptt_steps[0];
-        let state_synchronized = cross_neuron_bptt_steps
-            .iter()
-            .all(|e| *e == *reference_steps);
-
-        if !state_synchronized {
-            panic!("(tiny) neurons fell out of sync!");
-        }
-
-        let loss = match self.backward(*reference_steps, learning_rate) {
+        let loss = match self.backward(self.cache.len(), learning_rate) {
             Some(l) => l,
             None => return None,
         };
 
-        match &mut self.worker_pool {
-            Some(wp) => drop(wp.up()),
-            _ => (),
-        };
+        while self.cache.len() > retain {
+            self.cache.pop_front();
+        }
+
+        drop(self.worker_pool.up());
 
         return Some((network_output, loss));
     }

@@ -10,8 +10,6 @@ use std::{
     time::Duration,
 };
 
-use crate::{get_ts, rx_tx::unpack_pull_sock};
-
 use super::network::ContinuousNetwork;
 
 pub enum NeuronType {
@@ -275,7 +273,7 @@ impl Worker {
 
             if socks[0].is_readable() {
                 loop {
-                    let (cmd, data) = match unpack_pull_sock(&self.pull_sock) {
+                    let (cmd, data) = match Worker::unpack(&self.pull_sock) {
                         Ok(d) => d,
                         Err(_) => break,
                     };
@@ -369,41 +367,28 @@ impl WorkerPool {
         Ok((cmd, data))
     }
 
-    pub fn receive_frames(&mut self, expect: usize, timeout: f64) -> Vec<GradientFrame> {
-        let mut received = 0;
-        let cutoff = get_ts() + timeout;
-
-        let mut socks = [self.pull_sock.as_poll_item(zmq::POLLIN)];
-
+    pub fn receive_frames(&mut self) -> Vec<GradientFrame> {
         let mut collected_gradients: Vec<GradientFrame> = vec![];
 
-        while received < expect && get_ts() < cutoff {
-            if let Err(e) = zmq::poll(&mut socks, 0) {
-                eprintln!("(worker pool) failed to poll workers: {e}");
-                continue;
-            }
+        loop {
+            let (cmd, data) = match self.unpack() {
+                Ok(d) => d,
+                Err(_) => break,
+            };
 
-            loop {
-                let (cmd, data) = match self.unpack() {
-                    Ok(d) => d,
-                    Err(_) => break,
-                };
+            match cmd.as_str() {
+                "backprop" => {
+                    let frame: GradientFrame = match bincode::deserialize(&data) {
+                        Ok(d) => d,
+                        Err(e) => {
+                            eprintln!("(worker pool) failed to deserialize gradient: {e}");
+                            continue;
+                        }
+                    };
 
-                match cmd.as_str() {
-                    "backprop" => {
-                        let frame: GradientFrame = match bincode::deserialize(&data) {
-                            Ok(d) => d,
-                            Err(e) => {
-                                eprintln!("(worker pool) failed to deserialize gradient: {e}");
-                                continue;
-                            }
-                        };
-
-                        collected_gradients.push(frame);
-                        received += 1;
-                    }
-                    _ => eprintln!("(worker pool) received unknown command from worker: {cmd}"),
+                    collected_gradients.push(frame);
                 }
+                _ => eprintln!("(worker pool) received unknown command from worker: {cmd}"),
             }
         }
 
@@ -492,7 +477,7 @@ impl WorkerPool {
     }
 }
 
-pub struct PowerNetwork {
+pub struct AsyncPowerNetwork {
     pub size: usize,
     pub d_in: usize,
     pub d_out: usize,
@@ -513,9 +498,9 @@ pub struct PowerNetwork {
     pub worker_pool: Option<WorkerPool>,
 }
 
-impl PowerNetwork {
-    pub fn new(size: usize, d_in: usize, d_out: usize) -> PowerNetwork {
-        PowerNetwork {
+impl AsyncPowerNetwork {
+    pub fn new(size: usize, d_in: usize, d_out: usize) -> AsyncPowerNetwork {
+        AsyncPowerNetwork {
             size,
             d_in,
             d_out,
@@ -605,7 +590,7 @@ impl PowerNetwork {
     }
 }
 
-impl ContinuousNetwork for PowerNetwork {
+impl ContinuousNetwork for AsyncPowerNetwork {
     fn get_tau(&self) -> f64 {
         return self.tau;
     }
@@ -738,7 +723,7 @@ impl ContinuousNetwork for PowerNetwork {
                     }
                 });
 
-                let frames = pool.receive_frames(steps, 100.);
+                let frames = pool.receive_frames();
                 frames.iter().for_each(|gradient_t| {
                     weight_gradient += &gradient_t.gradient;
                     loss += gradient_t.loss;

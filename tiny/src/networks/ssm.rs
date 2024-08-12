@@ -150,6 +150,27 @@ pub struct SsmNetwork {
 }
 
 impl SsmNetwork {
+    pub fn new(size: usize, d_in: usize, d_out: usize) -> SsmNetwork {
+        SsmNetwork {
+            size,
+            d_in,
+            d_out,
+            density: 0.,
+            desired_connections: 0.,
+
+            neurons: (0..size).map(|_| Neuron::new()).collect::<Vec<Neuron>>(),
+            input_neurons: Vec::new(),
+            output_neurons: Vec::new(),
+            weights: Array2::zeros((size, size)),
+
+            tau: 0.,
+            steps: 0,
+
+            initialized: false,
+            lifecycle: 0,
+        }
+    }
+
     pub fn init_weight(&self, bound: Option<f64>, rng: &mut ThreadRng) -> f64 {
         if let Some(bound) = bound {
             rng.gen_range(-bound..bound)
@@ -184,27 +205,6 @@ impl SsmNetwork {
 }
 
 impl ContinuousNetwork for SsmNetwork {
-    fn new(size: usize, d_in: usize, d_out: usize) -> SsmNetwork {
-        SsmNetwork {
-            size,
-            d_in,
-            d_out,
-            density: 0.,
-            desired_connections: 0.,
-
-            neurons: (0..size).map(|_| Neuron::new()).collect::<Vec<Neuron>>(),
-            input_neurons: Vec::new(),
-            output_neurons: Vec::new(),
-            weights: Array2::zeros((size, size)),
-
-            tau: 0.,
-            steps: 0,
-
-            initialized: false,
-            lifecycle: 0,
-        }
-    }
-
     fn get_tau(&self) -> f64 {
         return self.tau;
     }

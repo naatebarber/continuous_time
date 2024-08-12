@@ -1,5 +1,4 @@
 pub trait ContinuousNetwork {
-    fn new(size: usize, d_in: usize, d_out: usize) -> Self;
     fn get_tau(&self) -> f64;
     fn weave(&mut self, density: f64);
     fn forward(
