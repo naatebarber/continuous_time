@@ -24,9 +24,14 @@ pub fn perf() {
     let mut b = tiny::BulkPowerNetwork::new(200, 1, 1, 6).unwrap();
     b.weave(1.);
 
+    let mut z = tiny::HashNetwork::new(200, 1, 1);
+    z.weave(1.);
+
     let steps = 50;
     let retain = 3000;
-    churn_one(b, steps, retain);
+    // bake_off(b, z);
+
+    churn_one(b, steps, retain, 5.);
 }
 
 fn main() {

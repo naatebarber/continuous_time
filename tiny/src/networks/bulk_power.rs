@@ -9,7 +9,7 @@ use std::{
     time::Duration,
 };
 
-use crate::{get_ts, rx_tx::unpack_pull_sock};
+use crate::get_ts;
 
 use super::network::ContinuousNetwork;
 
@@ -227,7 +227,7 @@ impl Worker {
 
             if socks[0].is_readable() {
                 loop {
-                    let (cmd, data) = match unpack_pull_sock(&self.pull_sock) {
+                    let (cmd, data) = match Worker::unpack(&self.pull_sock) {
                         Ok(d) => d,
                         Err(_) => break,
                     };
@@ -667,35 +667,29 @@ impl ContinuousNetwork for BulkPowerNetwork {
     fn backward(&mut self, steps: usize, learning_rate: f64) -> Option<f64> {
         let mut weight_gradient = Array2::<f64>::zeros((self.size, self.size));
         let mut loss = 0.;
-
-        let mut frames: Vec<BackpropFrame> = vec![];
         let workers = self.worker_pool.workers.len();
-        let frames_per_worker = (steps as f64 / workers as f64) as usize;
 
-        let mut offset = 0;
-        let mut limit = frames_per_worker;
+        let mut neuron_frames_per_core: Vec<Vec<Vec<NeuronFrame>>> = (0..workers)
+            .map(|_| vec![])
+            .collect::<Vec<Vec<Vec<NeuronFrame>>>>(
+        );
+        let mut round_robin = 0;
 
-        for i in 0..workers {
-            if i == workers - 1 {
-                limit = steps;
-            }
-
-            let bpf = BackpropFrame {
-                neurons: self
-                    .cache
-                    .range(offset..limit)
-                    .map(|neurons| (*neurons).clone())
-                    .collect::<Vec<Vec<NeuronFrame>>>(),
-                output_neurons: self.output_neurons.clone(),
-                step: offset,
-                ssm: self.weights.clone(),
-            };
-
-            offset += frames_per_worker;
-            limit += frames_per_worker;
-
-            frames.push(bpf);
+        for i in 0..steps {
+            let core_ix = round_robin % workers;
+            neuron_frames_per_core[core_ix].push(self.cache[i].clone());
+            round_robin += 1;
         }
+
+        let frames = neuron_frames_per_core
+            .into_iter()
+            .map(|nfpc| BackpropFrame {
+                neurons: nfpc,
+                step: 0,
+                output_neurons: self.output_neurons.clone(),
+                ssm: self.weights.clone(),
+            })
+            .collect::<Vec<BackpropFrame>>();
 
         frames.iter().for_each(|f| {
             if let Err(e) = self.worker_pool.send_frame("backprop", f) {
