@@ -5,3 +5,4 @@ pub mod network;
 pub mod power;
 pub mod ssm;
 pub mod unsafe_power;
+pub mod upower;
