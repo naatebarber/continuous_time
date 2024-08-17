@@ -1,8 +1,8 @@
 use rand::{prelude::*, thread_rng, Rng};
+use std::{collections::VecDeque, error::Error};
+
 use std::{
     cmp::Ordering,
-    collections::VecDeque,
-    error::Error,
     thread::{self, JoinHandle},
     time::Duration,
 };
@@ -91,10 +91,7 @@ impl Worker {
 
             for neuron_ix in bpf.output_neurons.iter() {
                 let neuron = &neurons[*neuron_ix];
-                let error = neuron.loss.powi(2);
-
-                let gradient = 2. * error;
-
+                let gradient = neuron.loss;
                 delta[*neuron_ix] += gradient;
             }
 
@@ -451,6 +448,9 @@ pub struct PowerNetwork {
     pub weights: Array2<f64>,
 
     pub cache: VecDeque<Vec<NeuronFrame>>,
+    pub trend: VecDeque<Vec<f64>>,
+    pub trial: VecDeque<(usize, usize)>,
+    pub timeout: VecDeque<(usize, usize, f64)>,
 
     pub tau: f64,
     pub steps: usize,
@@ -484,6 +484,10 @@ impl PowerNetwork {
             weights: Array2::zeros((size, size)),
 
             cache: VecDeque::new(),
+
+            trend: VecDeque::new(),
+            trial: VecDeque::new(),
+            timeout: VecDeque::new(),
 
             tau: 0.,
             steps: 0,
@@ -579,16 +583,17 @@ impl PowerNetwork {
         self.output_neurons = neuron_ixlist.drain(0..self.d_out).collect::<Vec<usize>>();
     }
 
-    pub fn forward(&mut self, inputs: Vec<f64>, next_tau: f64, steps: usize) -> Option<Vec<f64>> {
+    pub fn forward(&mut self, inputs: Vec<f64>, next_tau: f64, step_size: f64) -> Option<Vec<f64>> {
         if !self.initialized {
             self.init(inputs, next_tau);
             return None;
         }
 
-        let step_size = (next_tau - self.tau) / steps as f64;
+        let mut steps = 0;
 
         while self.tau < next_tau {
             let mut input_ix = 0;
+            steps += 1;
 
             let neuron_pointers = self
                 .neurons
@@ -648,6 +653,7 @@ impl PowerNetwork {
 
     pub fn backward(&mut self, learning_rate: f64, losses: Vec<f64>) {
         let steps = self.cache.len();
+        self.trend.push_back(losses.clone());
 
         let inject_loss_start = steps - self.recent_euler_steps;
         let inject_loss_end = steps;
@@ -699,6 +705,79 @@ impl PowerNetwork {
 
         weight_gradient *= learning_rate;
         self.weights -= &weight_gradient;
+    }
+
+    pub fn metatrend(&self) -> f64 {
+        let mut diffs: Vec<f64> = Vec::new();
+
+        for i in 1..self.trend.len() {
+            diffs.push(self.trend[i].iter().sum::<f64>() / self.trend[i - 1].iter().sum::<f64>());
+        }
+
+        return diffs.iter().sum::<f64>() / diffs.len() as f64;
+    }
+
+    pub fn alter(&mut self, alter_potential: usize) {
+        if self.trend.len() < alter_potential {
+            return;
+        }
+
+        if self.metatrend() > 1. {
+            // Restore network alterations in case of poor metatrend
+
+            if let Some(trial) = self.trial.pop_front() {
+                self.weights[[trial.0, trial.1]] = 0.;
+            }
+
+            if let Some(timeout) = self.timeout.pop_front() {
+                self.weights[[timeout.0, timeout.1]] = timeout.2;
+            }
+        }
+
+        let mut rng = thread_rng();
+
+        let mut output = self.output_neurons.clone();
+        output.shuffle(&mut rng);
+
+        let mut trial: Option<(usize, usize)> = None;
+        let mut timeout: Option<(usize, usize)> = None;
+
+        for output_neuron_ix in output {
+            let mut output_weights = (0..self.size).collect::<Vec<_>>();
+            output_weights.shuffle(&mut rng);
+
+            for output_weight_ix in output_weights {
+                if let None = timeout {
+                    if self.weights[[output_neuron_ix, output_weight_ix]] > 0. {
+                        timeout = Some((output_neuron_ix, output_weight_ix));
+                    }
+                }
+
+                if let None = trial {
+                    if self.weights[[output_neuron_ix, output_weight_ix]] <= 0. {
+                        trial = Some((output_neuron_ix, output_weight_ix))
+                    }
+                }
+
+                match (&trial, &timeout) {
+                    (Some(_), Some(_)) => break,
+                    _ => continue,
+                }
+            }
+        }
+
+        if let Some(trial) = trial {
+            let trial_weight = self.init_weight(None, &mut rng);
+            self.weights[[trial.0, trial.1]] = trial_weight;
+            self.trial.push_back(trial);
+        }
+
+        if let Some(timeout) = timeout {
+            let timeout_weight = self.weights[[timeout.0, timeout.1]];
+            self.weights[[timeout.0, timeout.1]] = 0.;
+            self.timeout
+                .push_back((timeout.0, timeout.1, timeout_weight))
+        }
     }
 
     pub fn sync(&mut self, retain: usize) {

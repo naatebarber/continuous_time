@@ -1,5 +1,6 @@
 pub mod bake_off;
 pub mod churn_one;
+pub mod envs;
 pub mod match_wave;
 pub mod util;
 
