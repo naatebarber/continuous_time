@@ -1,8 +1,9 @@
 pub mod api;
+pub mod beta;
 pub mod config;
+pub mod net;
 pub mod rx_tx;
 pub mod util;
-pub mod beta;
 
 pub use beta::hash::HashNetwork;
 pub use beta::network::{ContinuousNetwork, ContinuousUnsupervisedNetwork};
