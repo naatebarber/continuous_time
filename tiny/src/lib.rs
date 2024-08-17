@@ -1,12 +1,12 @@
 pub mod api;
 pub mod config;
-pub mod networks;
 pub mod rx_tx;
 pub mod util;
+pub mod beta;
 
-pub use networks::hash::HashNetwork;
-pub use networks::network::{ContinuousNetwork, ContinuousUnsupervisedNetwork};
-pub use networks::power::PowerNetwork;
-pub use networks::ssm::SsmNetwork;
-pub use networks::upower::PowerNetwork as UPowerNetwork;
+pub use beta::hash::HashNetwork;
+pub use beta::network::{ContinuousNetwork, ContinuousUnsupervisedNetwork};
+pub use beta::power::PowerNetwork;
+pub use beta::ssm::SsmNetwork;
+pub use beta::upower::PowerNetwork as UPowerNetwork;
 pub use util::*;
